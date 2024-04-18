@@ -65,6 +65,6 @@ jobs:
         run: |
           docker push ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
       - name: Commit image to DockerHub
-        if: ${{ inputs.commit_image == 'true' }}
+        if: ${{ inputs.with_commit_image == 'true' }}
         run: |
           docker push ${{ secrets.registry }}/${{ inputs.app_name }}:${GITHUB_SHA::7}
