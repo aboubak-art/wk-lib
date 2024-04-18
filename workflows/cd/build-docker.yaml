@@ -1,12 +1,23 @@
 on:
   workflow_call:
-    secrets:
+    inputs:
+      app_name:
+        required: true
+        description: '(mandatory) Application name'
+        type: string
+      image_tag:
+        required: true
+        description: '(mandatory) Docker image tag'
+        type: string
       context:
         required: true
         description: '(mandatory) Context to use. Available options: [aws, dockerhub]'
-      image:
-        required: true
-        description: (mandatory) Docker image to build
+        type: string
+      with_commit_image:
+        required: false
+        description: (optional) Commit image to DockerHub
+        type: boolean
+    secrets:
       image_tag:
         required: true
         description: (mandatory) Docker image tag
@@ -19,21 +30,15 @@ on:
       aws_default_region:
         required: false
         description: (optional) AWS default region
-      repository:
+      registry:
         required: false
         description: (optional) AWS ECR URL
-      app_name:
-        required: false
-        description: (optional) Application name
       dockerhub_username:
         required: false
         description: (optional) DockerHub username
       dockerhub_password:
         required: false
         description: (optional) DockerHub password
-      commit_image:
-        required: false
-        description: (optional) Commit image to DockerHub
 
 jobs:
   build:
@@ -42,27 +47,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure AWS credentials
-        if: ${{ secrets.context == 'aws' }}
+        if: ${{ inputs.context == 'aws' }}
         run: |
           aws configure set aws_access_key_id ${{ secrets.aws_access_key_id }}
           aws configure set aws_secret_access_key ${{ secrets.aws_secret_access_key }}
           aws configure set region ${{ secrets.aws_default_region }}
       - name: Login to Amazon ECR
-        if: ${{ secrets.context == 'aws' }}
+        if: ${{ inputs.context == 'aws' }}
         run: |
-          aws ecr get-login-password --region ${{ secrets.aws_default_region }} | docker login --username AWS --password-stdin ${{ env.repository }}
+          aws ecr get-login-password --region ${{ secrets.aws_default_region }} | docker login --username AWS --password-stdin ${{ secrets.registry }}
       - name: Login to DockerHub
-        if: ${{ secrets.context == 'dockerhub' }}
+        if: ${{ inputs.context == 'dockerhub' }}
         run: |
           echo ${{ secrets.dockerhub_password }} | docker login -u ${{ secrets.dockerhub_username }} --password-stdin
       - name: Building docker image
         run: |
-          docker build -t ${{ secrets.repository }}/${{ secrets.app_name }}:${{ secrets.image_tag }} \
-            -t ${{ secrets.repository }}/${{ env.app_name }}:${GITHUB_SHA::7} .
+          docker build -t ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }} \
+            -t ${{ secrets.registry }}/${{ inputs.app_name }}:${GITHUB_SHA::7} .
       - name: Pushing docker image
         run: |
-          docker push ${{ secrets.repository }}/${{ secrets.app_name }}:${{ secrets.image_tag }}
+          docker push ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
       - name: Commit image to DockerHub
-        if: ${{ secrets.commit_image == 'true' }}
+        if: ${{ inputs.commit_image == 'true' }}
         run: |
-          docker push ${{ secrets.repository }}/${{ secrets.app_name }}:${GITHUB_SHA::7}
+          docker push ${{ secrets.registry }}/${{ inputs.app_name }}:${GITHUB_SHA::7}
