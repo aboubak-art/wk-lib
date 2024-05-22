@@ -37,6 +37,12 @@ on:
       dockerhub_password:
         required: false
         description: (optional) DockerHub password
+      build_env:
+        required: false
+        description: (optional) Build environment
+
+env:
+  build_env: ${{ secrets.build_env }}
 
 jobs:
   build:
@@ -58,6 +64,12 @@ jobs:
         if: ${{ inputs.context == 'dockerhub' }}
         run: |
           echo ${{ secrets.dockerhub_password }} | docker login -u ${{ secrets.dockerhub_username }} --password-stdin
+      - name: Set build environment
+        if: ${{ env.build_env }}
+        run: |
+          cat > .env <<EOF
+            ${{ secrets.build_env }}
+          EOF
       - name: Building docker image
         run: |
           docker build -t ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }} \
