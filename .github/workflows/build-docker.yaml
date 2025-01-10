@@ -78,9 +78,7 @@ jobs:
           EOF
       - name: Building docker image
         run: |
-          docker build -t ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }} \
-            -t ${{ secrets.registry }}/${{ inputs.app_name }}:${GITHUB_SHA::7} ${{ inputs.build-args }} \
-            .
+          docker build -t ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }} -t ${{ secrets.registry }}/${{ inputs.app_name }}:${GITHUB_SHA::7} ${{ inputs.build-args }} .
       - name: Pushing docker image
         run: |
           docker push ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
