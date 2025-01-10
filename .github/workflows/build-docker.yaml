@@ -3,21 +3,27 @@ on:
     inputs:
       app_name:
         required: true
-        description: '(mandatory) Application name'
+        description: "(mandatory) Application name"
         type: string
       image_tag:
         required: true
-        description: '(mandatory) Docker image tag'
+        description: "(mandatory) Docker image tag"
         type: string
       context:
         required: true
-        description: '(mandatory) Context to use. Available options: [aws, dockerhub]'
+        description: "(mandatory) Context to use. Available options: [aws, dockerhub]"
         type: string
       with_commit_image:
         required: false
         description: (optional) Commit image to DockerHub
         type: boolean
         default: true
+      build-args:
+        required: false
+        description: (optional) Build arguments
+        type: string
+        default: ""
+
     secrets:
       aws_access_key_id:
         required: false
@@ -73,7 +79,7 @@ jobs:
       - name: Building docker image
         run: |
           docker build -t ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }} \
-            -t ${{ secrets.registry }}/${{ inputs.app_name }}:${GITHUB_SHA::7} .
+            -t ${{ secrets.registry }}/${{ inputs.app_name }}:${GITHUB_SHA::7} ${{ inputs.build-args }} .
       - name: Pushing docker image
         run: |
           docker push ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
