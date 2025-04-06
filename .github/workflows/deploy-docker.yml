@@ -1,0 +1,175 @@
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        required: true
+        description: "(mandatory) Application name"
+        type: string
+      image_tag:
+        required: true
+        description: "(mandatory) Docker image tag"
+        type: string
+      context:
+        required: true
+        description: "(mandatory) Context to use. Available options: [aws, dockerhub]"
+        type: string
+      with_commit_image:
+        required: false
+        description: (optional) Commit image to DockerHub
+        type: boolean
+        default: true
+      build-args:
+        required: false
+        description: (optional) Build arguments
+        type: string
+        default: ""
+      deploy_stage:
+        required: true
+        description: "(mandatory) Deploy stage"
+        type: string
+      deploy_port:
+        required: true
+        description: "(mandatory) Deploy port"
+        type: number
+      exposed_port:
+        required: true
+        description: "(mandatory) Exposed port"
+        type: number
+        default: 3000
+      deploy_network:
+        required: true
+        description: "(mandatory) Deploy network"
+        type: string
+        default: "bridge"
+      deploy_host:
+        required: true
+        description: "(mandatory) Deploy host"
+        type: string
+        default: "127.0.0.1"
+
+    secrets:
+      aws_access_key_id:
+        required: false
+        description: (optional) AWS access key ID
+      aws_secret_access_key:
+        required: false
+        description: (optional) AWS secret access key
+      aws_default_region:
+        required: false
+        description: (optional) AWS default region
+      registry:
+        required: false
+        description: (optional) AWS ECR URL
+      dockerhub_username:
+        required: false
+        description: (optional) DockerHub username
+      dockerhub_password:
+        required: false
+        description: (optional) DockerHub password
+      build_env:
+        required: false
+        description: (optional) Build environment
+      deploy_env:
+        required: false
+        description: (optional) Deploy environment
+      ssh_key:
+        required: true
+        description: (optional) SSH key
+      ssh_user:
+        required: true
+        description: (optional) SSH user
+      ssh_host:
+        required: true
+        description: (optional) SSH host
+
+env:
+  build_env: ${{ secrets.build_env }}
+
+jobs:
+  build:
+    name: Build and push to ${{ inputs.context }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        if: ${{ inputs.context == 'aws' }}
+        run: |
+          echo "[default]" > ~/.aws/credentials
+          echo "aws_access_key_id=${{ secrets.aws_access_key_id }}" >> ~/.aws/credentials
+          echo "aws_secret_access_key=${{ secrets.aws_secret_access_key }}" >> ~/.aws/credentials
+          echo "region=${{ secrets.aws_default_region }}" > ~/.aws/config
+      - name: Login to DockerHub
+        if: ${{ inputs.context == 'dockerhub' }}
+        run: echo "${{ secrets.dockerhub_password }}" | docker login -u ${{ secrets.dockerhub_username }} --password-stdin
+      - name: Set build environment
+        if: ${{ env.build_env }}
+        run: |
+          cat > .env <<EOF
+            ${{ secrets.build_env }}
+          EOF
+      - name: Build and push Docker image
+        run: |
+          docker build -t ${{ inputs.app_name }}:${{ inputs.image_tag }} ${{ inputs.build-args }} .
+          docker tag ${{ inputs.app_name }}:${{ inputs.image_tag }} ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
+          docker push ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
+      - name: Commit image to DockerHub
+        if: ${{ inputs.with_commit_image == true }}
+        run: |
+          docker tag ${{ inputs.app_name }}:${{ inputs.image_tag }} ${{ secrets.dockerhub_username }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
+          docker push ${{ secrets.dockerhub_username }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
+
+  deploy:
+    name: Deploy to ${{ inputs.deploy_stage }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.ssh_key }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.ssh_host }} >> ~/.ssh/known_hosts
+      - name: Creating deploy script
+        run: |
+          cat <<EOF > deploy.sh
+          #!/bin/bash
+          set -e
+
+          IMAGE=${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
+          NAME=${{ inputs.app_name }}
+          PORT=${{ inputs.deploy_port }}
+          NETWORK=${{ inputs.deploy_network }}
+
+          echo "🚧 Deploying $NAME"
+          echo "📝 Checking if a container named '$NAME' exists..."
+          if [ ! "$(docker container ls -q -f name=$NAME)" ]; then
+            if [ "$(docker container ls -aq -f status=exited -f name=$NAME)" ]; then
+              echo "📍 $NAME has status 'exited', deleting..."
+              docker container rm $NAME
+            fi
+          else
+            echo "📍 $NAME found and running, deleting..."
+            docker container rm $(docker container stop $NAME)
+          fi
+
+          echo "🚀 Updating $NAME..."
+          docker pull $IMAGE
+          docker container run --name $NAME \
+            -p ${{ inputs.deploy_host }}:$PORT:3000 \
+            --env-file /tmp/.env.$NAME \
+            --network $NETWORK \
+            -d $IMAGE
+
+          echo "♻️ Cleanning..."
+          docker container prune -f
+          docker image prune -f
+
+          echo "✅ $NAME deployed successfully!"
+          EOF
+      - name: Deploying
+        run: |
+          cat > /tmp/.env.${{ inputs.app_name }} <<EOF
+            ${{ secrets.deploy_env }}
+          EOF
+          scp deploy.sh ${{ secrets.ssh_user }}@${{ secrets.ssh_host }}:/tmp/deploy.sh
+          ssh ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "bash /tmp/deploy.sh"
