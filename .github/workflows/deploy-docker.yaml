@@ -133,8 +133,6 @@ jobs:
           mkdir -p ~/.ssh || true
       - name: Add SSH key
         run: echo "${{ secrets.ssh_key }}" > ~/.ssh/id_rsa
-      - name: Copy SSH key
-        run: ssh-keyscan -H ${{ secrets.ssh_host }} >> ~/.ssh/known_hosts
       - name: Set permissions for SSH key
         run: chmod 600 ~/.ssh/id_rsa
       - name: Creating deploy script
@@ -179,5 +177,7 @@ jobs:
           cat > /tmp/.env.${{ inputs.app_name }} <<EOF
             ${{ secrets.deploy_env }}
           EOF
-          scp -P ${{ secrets.ssh_port }} deploy.sh ${{ secrets.ssh_user }}@${{ secrets.ssh_host }}:/tmp/deploy.sh
-          ssh -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "bash /tmp/deploy.sh"
+          scp -o StrictHostKeyChecking=no -P ${{ secrets.ssh_port }} deploy.sh ${{ secrets.ssh_user }}@${{ secrets.ssh_host }}:/tmp/deploy.sh
+          scp -o StrictHostKeyChecking=no -P ${{ secrets.ssh_port }} /tmp/.env.${{ inputs.app_name }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }}:/tmp/.env.${{ inputs.app_name }}
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "chmod +x /tmp/deploy.sh"
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "bash /tmp/deploy.sh"
