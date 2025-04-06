@@ -130,10 +130,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Configure SSH
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.ssh_key }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.ssh_host }} >> ~/.ssh/known_hosts
+          mkdir -p ~/.ssh || true
+      - name: Add SSH key
+        run: echo "${{ secrets.ssh_key }}" > ~/.ssh/id_rsa
+      - name: Set permissions for SSH key
+        run: chmod 600 ~/.ssh/id_rsa
+      - name: Copy SSH key
+        run: ssh-keyscan -H ${{ secrets.ssh_host }} >> ~/.ssh/known_hosts
       - name: Creating deploy script
         run: |
           cat <<EOF > deploy.sh
@@ -145,36 +148,36 @@ jobs:
           PORT=${{ inputs.deploy_port }}
           NETWORK=${{ inputs.deploy_network }}
 
-          echo "🚧 Deploying $NAME"
-          echo "📝 Checking if a container named '$NAME' exists..."
-          if [ ! "$(docker container ls -q -f name=$NAME)" ]; then
-            if [ "$(docker container ls -aq -f status=exited -f name=$NAME)" ]; then
-              echo "📍 $NAME has status 'exited', deleting..."
-              docker container rm $NAME
+          echo "🚧 Deploying \$NAME"
+          echo "📝 Checking if a container named '\$NAME' exists..."
+          if [ ! "\$(docker container ls -q -f name=\$NAME)" ]; then
+            if [ "\$(docker container ls -aq -f status=exited -f name=\$NAME)" ]; then
+              echo "📍 \$NAME has status 'exited', deleting..."
+              docker container rm \$NAME
             fi
           else
-            echo "📍 $NAME found and running, deleting..."
-            docker container rm $(docker container stop $NAME)
+            echo "📍 \$NAME found and running, deleting..."
+            docker container rm \$(docker container stop \$NAME)
           fi
 
-          echo "🚀 Updating $NAME..."
-          docker pull $IMAGE
-          docker container run --name $NAME \
-            -p ${{ inputs.deploy_host }}:$PORT:3000 \
-            --env-file /tmp/.env.$NAME \
-            --network $NETWORK \
-            -d $IMAGE
+          echo "🚀 Updating \$NAME..."
+          docker pull \$IMAGE
+          docker container run --name \$NAME \
+            -p ${{ inputs.deploy_host }}:\$PORT:3000 \
+            --env-file /tmp/.env.\$NAME \
+            --network \$NETWORK \
+            -d \$IMAGE
 
           echo "♻️ Cleanning..."
           docker container prune -f
           docker image prune -f
 
-          echo "✅ $NAME deployed successfully!"
+          echo "✅ \$NAME deployed successfully!"
           EOF
       - name: Deploying
         run: |
           cat > /tmp/.env.${{ inputs.app_name }} <<EOF
             ${{ secrets.deploy_env }}
           EOF
-          scp deploy.sh ${{ secrets.ssh_user }}@${{ secrets.ssh_host }}:/tmp/deploy.sh
-          ssh ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "bash /tmp/deploy.sh"
+          scp -P ${{ secrets.ssh_port }} deploy.sh ${{ secrets.ssh_user }}@${{ secrets.ssh_host }}:/tmp/deploy.sh
+          ssh -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "bash /tmp/deploy.sh"
