@@ -32,18 +32,18 @@ on:
         description: "(mandatory) Deploy port"
         type: number
       exposed_port:
-        required: true
-        description: "(mandatory) Exposed port"
+        required: false
+        description: "(optional) Exposed port. Default: 3000"
         type: number
         default: 3000
       deploy_network:
-        required: true
-        description: "(mandatory) Deploy network"
+        required: false
+        description: "(optional) Deploy network. Default: bridge"
         type: string
         default: "bridge"
       deploy_host:
-        required: true
-        description: "(mandatory) Deploy host"
+        required: false
+        description: "(optional) Deploy host. Default is 127.0.0.1"
         type: string
         default: "127.0.0.1"
 
