@@ -125,6 +125,7 @@ jobs:
   deploy:
     name: Deploy to ${{ inputs.deploy_stage }}
     runs-on: ubuntu-22.04
+    needs: build
     steps:
       - uses: actions/checkout@v4
       - name: Configure SSH
