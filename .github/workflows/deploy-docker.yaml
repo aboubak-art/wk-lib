@@ -74,13 +74,17 @@ on:
         description: (optional) Deploy environment
       ssh_key:
         required: true
-        description: (optional) SSH key
+        description: SSH key
       ssh_user:
         required: true
-        description: (optional) SSH user
+        description: SSH user
       ssh_host:
         required: true
-        description: (optional) SSH host
+        description: SSH host
+      ssh_port:
+        required: true
+        description: SSH port
+
 
 env:
   build_env: ${{ secrets.build_env }}
