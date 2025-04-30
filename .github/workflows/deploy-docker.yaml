@@ -198,11 +198,12 @@ jobs:
         id: dns_check
         run: |
           server_response=$(ssh -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "sudo nginx -T | grep 'server_name' | grep '${{ inputs.dns_name }}'")
-          dns_configured=$(echo "$server_response" | grep -c "${{ inputs.dns_name }}")
-          if [ "$dns_configured" -gt 0 ]; then
-            echo "dns_configured=true" >> $GITHUB_OUTPUT
+          dns_configured=$(echo "$server_response" | grep -c "${{ inputs.dns_name }}" && echo "true" || echo "false")
+          echo "dns_configured=$dns_configured" >> $GITHUB_OUTPUT
+          if [ "$dns_configured" == "true" ]; then
+            echo "✅ DNS is already configured for ${{ inputs.dns_name }}"
           else
-            echo "dns_configured=false" >> $GITHUB_OUTPUT
+            echo "❌ DNS is not configured for ${{ inputs.dns_name }}"
           fi
       - name: Get DNS name
         if: ${{ steps.dns_check.outputs.dns_configured == 'false' && inputs.dns_name != '' }}
