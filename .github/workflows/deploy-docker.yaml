@@ -36,16 +36,20 @@ on:
         description: "(optional) Exposed port. Default: 3000"
         type: number
         default: 3000
-      deploy_network:
-        required: false
-        description: "(optional) Deploy network. Default: bridge"
-        type: string
-        default: "bridge"
       deploy_host:
         required: false
         description: "(optional) Deploy host. Default is 127.0.0.1"
         type: string
         default: "127.0.0.1"
+      dns_name:
+        required: false
+        description: "(optional) DNS name. Default is localhost"
+        type: string
+      run_args:
+        required: false
+        description: "(optional) Run arguments. Default is empty"
+        type: string
+        default: ""
 
     secrets:
       aws_access_key_id:
@@ -72,6 +76,9 @@ on:
       deploy_env:
         required: false
         description: (optional) Deploy environment
+      deploy_network:
+        required: false
+        description: "(optional) Deploy networks. Default: bridge"
       ssh_key:
         required: true
         description: SSH key
@@ -85,7 +92,6 @@ on:
         required: true
         description: SSH port
 
-
 env:
   build_env: ${{ secrets.build_env }}
 
@@ -98,6 +104,7 @@ jobs:
       - name: Configure AWS credentials
         if: ${{ inputs.context == 'aws' }}
         run: |
+          mkdir -p ~/.aws || true
           echo "[default]" > ~/.aws/credentials
           echo "aws_access_key_id=${{ secrets.aws_access_key_id }}" >> ~/.aws/credentials
           echo "aws_secret_access_key=${{ secrets.aws_secret_access_key }}" >> ~/.aws/credentials
@@ -126,25 +133,29 @@ jobs:
     name: Deploy to ${{ inputs.deploy_stage }}
     runs-on: ubuntu-22.04
     needs: build
+    environment:
+      name: ${{ inputs.deploy_stage }}
+      url: https://${{ steps.dns_name.outputs.dns_name }}
     steps:
       - uses: actions/checkout@v4
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh || true
-      - name: Add SSH key
-        run: echo "${{ secrets.ssh_key }}" > ~/.ssh/id_rsa
-      - name: Set permissions for SSH key
-        run: chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" >> ~/.ssh/config
+      - name: Add SSH key and set permissions
+        run: |
+          echo "${{ secrets.ssh_key }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
       - name: Creating deploy script
         run: |
-          cat <<EOF > deploy.sh
+          cat <<EOF > deploy_${{ inputs.app_name }}.sh
           #!/bin/bash
           set -e
 
           IMAGE=${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
           NAME=${{ inputs.app_name }}
           PORT=${{ inputs.deploy_port }}
-          NETWORK=${{ inputs.deploy_network }}
+          NETWORK=${{ secrets.deploy_network || 'bridge' }}
 
           echo "🚧 Deploying \$NAME"
           echo "📝 Checking if a container named '\$NAME' exists..."
@@ -161,10 +172,12 @@ jobs:
           echo "🚀 Updating \$NAME..."
           docker pull \$IMAGE
           docker container run --name \$NAME \
-            -p ${{ inputs.deploy_host }}:\$PORT:3000 \
+            -p ${{ inputs.deploy_host }}:\$PORT:${{ inputs.exposed_port }} \
             --env-file /tmp/.env.\$NAME \
             --network \$NETWORK \
-            -d \$IMAGE
+            --restart unless-stopped \
+            -d ${{ inputs.run_args }} \
+            \$IMAGE
 
           echo "♻️ Cleanning..."
           docker container prune -f
@@ -177,7 +190,64 @@ jobs:
           cat > /tmp/.env.${{ inputs.app_name }} <<EOF
             ${{ secrets.deploy_env }}
           EOF
-          scp -o StrictHostKeyChecking=no -P ${{ secrets.ssh_port }} deploy.sh ${{ secrets.ssh_user }}@${{ secrets.ssh_host }}:/tmp/deploy.sh
-          scp -o StrictHostKeyChecking=no -P ${{ secrets.ssh_port }} /tmp/.env.${{ inputs.app_name }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }}:/tmp/.env.${{ inputs.app_name }}
-          ssh -o StrictHostKeyChecking=no -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "chmod +x /tmp/deploy.sh"
-          ssh -o StrictHostKeyChecking=no -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "bash /tmp/deploy.sh"
+          scp -P ${{ secrets.ssh_port }} deploy_${{ inputs.app_name }}.sh ${{ secrets.ssh_user }}@${{ secrets.ssh_host }}:/tmp/deploy_${{ inputs.app_name }}.sh
+          scp -P ${{ secrets.ssh_port }} /tmp/.env.${{ inputs.app_name }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }}:/tmp/.env.${{ inputs.app_name }}
+          ssh -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "chmod +x /tmp/deploy_${{ inputs.app_name }}.sh"
+          ssh -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "bash /tmp/deploy_${{ inputs.app_name }}.sh"
+      - name: Check if DNS is already configured
+        id: dns_check
+        run: |
+          server_response=$(ssh -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "sudo nginx -T | grep 'server_name' | grep '${{ inputs.dns_name }}'")
+          dns_configured=$(echo "$server_response" | grep -c "${{ inputs.dns_name }}")
+          if [ "$dns_configured" -gt 0 ]; then
+            echo "dns_configured=true" >> $GITHUB_OUTPUT
+          else
+            echo "dns_configured=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Get DNS name
+        if: ${{ steps.dns_check.outputs.dns_configured == 'false' && inputs.dns_name != '' }}
+        id: dns_name
+        run: |
+          if [ "${{ inputs.dns_name }}" == "" ]; then
+            echo "DNS name not provided, using default application name"
+            echo "dns_name=${{ inputs.app_name }}.dev-team-everest.xyz" >> $GITHUB_OUTPUT
+          else
+            echo "dns_name=${{ inputs.dns_name }}" >> $GITHUB_OUTPUT
+          fi
+      - name: Setup DNS
+        if: ${{ steps.dns_check.outputs.dns_configured == 'false' && steps.dns_name.outputs.dns_name != '' }}
+        run: |
+          dns_name="${{ steps.dns_name.outputs.dns_name }}"
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "
+          sudo bash -c \"cat > /etc/nginx/sites-available/${dns_name} << 'EOF'
+          server {
+            listen 80;
+            server_name ${dns_name} www.${dns_name};
+
+            location / {
+              proxy_pass http://${{ inputs.deploy_host }}:${{ inputs.deploy_port }};
+              proxy_set_header Host \\\$host;
+              proxy_set_header X-Real-IP \\\$remote_addr;
+              proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto \\\$scheme;
+            }
+          }
+          EOF\"
+          sudo ln -sf /etc/nginx/sites-available/${dns_name} /etc/nginx/sites-enabled/
+          sudo nginx -t
+          sudo systemctl reload nginx
+          sudo certbot --nginx -d ${dns_name} --non-interactive --agree-tos
+          "
+          echo "✅ DNS setup completed!"
+      - name: Cleanup
+        run: |
+          rm -f deploy_${{ inputs.app_name }}.sh
+          rm -f /tmp/.env.${{ inputs.app_name }}
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "rm -f /tmp/deploy_${{ inputs.app_name }}.sh"
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "rm -f /tmp/.env.${{ inputs.app_name }}"
+          echo "✅ Cleanup completed!"
+      - name: Notify deployment
+        run: |
+          echo "🚀 Deployment to ${{ inputs.deploy_stage }} completed successfully!"
+          echo "🔗 Access your application at https://${{ steps.dns_name.outputs.dns_name }}"
+          echo "✅ Deployment completed!"
