@@ -194,19 +194,7 @@ jobs:
           scp -P ${{ secrets.ssh_port }} /tmp/.env.${{ inputs.app_name }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }}:/tmp/.env.${{ inputs.app_name }}
           ssh -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "chmod +x /tmp/deploy_${{ inputs.app_name }}.sh"
           ssh -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "bash /tmp/deploy_${{ inputs.app_name }}.sh"
-      - name: Check if DNS is already configured
-        id: dns_check
-        run: |
-          ssh -o StrictHostKeyChecking=no -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "
-          if [ -f /etc/nginx/sites-available/${{ inputs.app_name }} ]; then
-            echo 'dns_configured=true' >> $GITHUB_OUTPUT
-          else
-            echo 'dns_configured=false' >> $GITHUB_OUTPUT
-          fi
-          "
-          echo "DNS configuration check completed!"
       - name: Get DNS name
-        if: ${{ steps.dns_check.outputs.dns_configured == 'false' && inputs.dns_name != '' }}
         id: dns_name
         run: |
           if [ "${{ inputs.dns_name }}" == "" ]; then
@@ -214,6 +202,15 @@ jobs:
             echo "dns_name=${{ inputs.app_name }}.dev-team-everest.xyz" >> $GITHUB_OUTPUT
           else
             echo "dns_name=${{ inputs.dns_name }}" >> $GITHUB_OUTPUT
+          fi
+      - name: Check if DNS is already configured
+        id: dns_check
+        run: |
+          config_file_exists=$(ssh -o StrictHostKeyChecking=no -p ${{ secrets.ssh_port }} ${{ secrets.ssh_user }}@${{ secrets.ssh_host }} "test -f /etc/nginx/sites-available/${{ steps.dns_name.outputs.dns_name }} && echo 'true' || echo 'false'")
+          if [ "$config_file_exists" == "true" ]; then
+            echo "dns_configured=true" >> $GITHUB_OUTPUT
+          else
+            echo "dns_configured=false" >> $GITHUB_OUTPUT
           fi
       - name: Setup DNS
         if: ${{ steps.dns_check.outputs.dns_configured == 'false' && steps.dns_name.outputs.dns_name != '' }}
