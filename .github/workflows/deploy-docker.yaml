@@ -50,6 +50,11 @@ on:
         description: "(optional) Run arguments. Default is empty"
         type: string
         default: ""
+      post_run:
+        required: false
+        description: "(optional) Run any bash script after the container is up"
+        type: string
+        default: ""
 
     secrets:
       aws_access_key_id:
@@ -184,7 +189,17 @@ jobs:
           docker image prune -f
 
           echo "✅ \$NAME deployed successfully!"
+          
           EOF
+      - name: add post run script
+        if: ${{ inputs.post_run != '' }}
+        run: |
+          echo "Running post run script..."
+          cat <<EOF >> deploy_${{ inputs.app_name }}.sh
+
+          ${{ inputs.post_run }}
+          EOF
+          echo "Post run script added to deploy_${{ inputs.app_name }}.sh"
       - name: Deploying
         run: |
           cat > /tmp/.env.${{ inputs.app_name }} <<EOF
