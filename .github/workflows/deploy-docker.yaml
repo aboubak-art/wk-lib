@@ -165,6 +165,18 @@ jobs:
           NAME=${{ inputs.app_name }}
           PORT=${{ inputs.deploy_port }}
           NETWORK=${{ secrets.deploy_network || 'bridge' }}
+          CONTEXT=${{ inputs.context }}
+
+          echo "🛠️  Deploying application in context: \$CONTEXT"
+          if [ "\$CONTEXT" == "aws" ]; then
+            echo "🔐 Logging in to AWS ECR..."
+            aws ecr get-login-password --region ${{ secrets.aws_default_region }} | docker login --username AWS --password-stdin ${{ secrets.registry }}
+          fi
+          
+          if [ "\$CONTEXT" == "dockerhub" ]; then
+            echo "🔐 Logging in to DockerHub..."
+            echo "${{ secrets.dockerhub_password }}" | docker login -u ${{ secrets.dockerhub_username }} --password-stdin
+          fi
 
           echo "🚧 Deploying \$NAME"
           echo "📝 Checking if a container named '\$NAME' exists..."
