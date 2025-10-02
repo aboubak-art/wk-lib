@@ -115,7 +115,8 @@ jobs:
           echo "aws_secret_access_key=${{ secrets.aws_secret_access_key }}" >> ~/.aws/credentials
 
           echo "[default]" > ~/.aws/config
-          echo "region=${{ secrets.aws_default_region }}" > ~/.aws/config
+          echo "region = ${{ secrets.aws_default_region }}" >> ~/.aws/config
+          echo "output = json" >> ~/.aws/config
       - name: Login to DockerHub
         if: ${{ inputs.context == 'dockerhub' }}
         run: echo "${{ secrets.dockerhub_password }}" | docker login -u ${{ secrets.dockerhub_username }} --password-stdin
