@@ -117,6 +117,10 @@ jobs:
       - name: Login to DockerHub
         if: ${{ inputs.context == 'dockerhub' }}
         run: echo "${{ secrets.dockerhub_password }}" | docker login -u ${{ secrets.dockerhub_username }} --password-stdin
+      - name: Login to AWS ECR
+        if: ${{ inputs.context == 'aws' }}
+        run: |
+          aws ecr get-login-password --region ${{ secrets.aws_default_region }} | docker login --username AWS --password-stdin ${{ secrets.registry }}
       - name: Set build environment
         if: ${{ env.build_env }}
         run: |
