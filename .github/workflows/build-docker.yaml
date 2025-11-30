@@ -23,6 +23,11 @@ on:
         description: (optional) Build arguments
         type: string
         default: ""
+      with_latest_tag:
+        required: false
+        description: (optional) Tag the image as latest
+        type: boolean
+        default: true
 
     secrets:
       aws_access_key_id:
@@ -78,7 +83,10 @@ jobs:
           EOF
       - name: Building docker image
         run: |
-          docker build -t ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }} -t ${{ secrets.registry }}/${{ inputs.app_name }}:${GITHUB_SHA::7} ${{ inputs.build-args }} .
+          docker build -t ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }} \
+            -t ${{ secrets.registry }}/${{ inputs.app_name }}:${GITHUB_SHA::7} \
+            -t ${{ secrets.registry }}/${{ inputs.app_name }}:latest \
+            ${{ inputs.build-args }} .
       - name: Pushing docker image
         run: |
           docker push ${{ secrets.registry }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
@@ -86,3 +94,7 @@ jobs:
         if: ${{ inputs.with_commit_image == true }}
         run: |
           docker push ${{ secrets.registry }}/${{ inputs.app_name }}:${GITHUB_SHA::7}
+      - name: Tag image as latest
+        if: ${{ inputs.with_latest_tag == true }}
+        run: |
+          docker push ${{ secrets.registry }}/${{ inputs.app_name }}:latest
